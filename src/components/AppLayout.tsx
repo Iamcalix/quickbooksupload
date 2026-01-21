@@ -7,7 +7,7 @@ import ProcessingHistory, { HistoryEntry } from './ProcessingHistory';
 import CloudHistoryPanel from './CloudHistoryPanel';
 import { parseTransactions, ParseResult, ParsedTransaction } from '../utils/transactionParser';
 import { downloadExcel, downloadCSV, downloadFailedRecords } from '../utils/excelExport';
-import { saveBatchToDatabase, getSessionId, fetchCustomerMappings, CustomerMapping } from '../utils/databaseService';
+import { saveBatchToDatabase, getSessionId, fetchCustomerMappings, CustomerMapping, checkExistingTransactions } from '../utils/databaseService';
 
 const AppLayout: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -71,6 +71,55 @@ const AppLayout: React.FC = () => {
       });
     }
 
+    // Check for existing transactions immediately
+    console.log(`[AppLayout] Checking duplicates for ${result.successful.length} transactions. Bank: ${bankType}`); // DEBUG LOG
+
+    // DEBUG: Show alert with first ID to ensure parsing is correct in production
+    if (result.successful.length > 0) {
+      const firstId = bankType === 'NMB' ? result.successful[0].userId : result.successful[0].refId;
+      console.log(`[AppLayout] Sample ID to check: ${firstId}`);
+
+      // VALIDATION: Check if we have valid IDs to check
+      const missingIdCount = result.successful.filter(t => bankType === 'NMB' ? !t.userId : !t.refId).length;
+      if (missingIdCount > 0) {
+        setSaveMessage({
+          type: 'error',
+          text: `Warning: ${missingIdCount} transactions have no unique ID (User ID/Ref ID). Deduplication may fail for these.`
+        });
+        // We still proceed to check the ones that HAVE IDs
+      }
+    }
+
+    const { existingIds, error } = await checkExistingTransactions(result.successful, bankType);
+
+    if (error) {
+      setSaveMessage({ type: 'error', text: `Deduplication check failed: ${error}` });
+    }
+
+    if (existingIds.size > 0) {
+      const originalCount = result.successful.length;
+      result.successful = result.successful.filter(t => {
+        if (bankType === 'NMB') return !existingIds.has(t.userId);
+        return !existingIds.has(t.refId);
+      });
+      console.log(`Filtered ${originalCount - result.successful.length} duplicates`);
+
+      // Update success count
+      result.successCount = result.successful.length;
+
+      // Optionally notify user
+      setSaveMessage({
+        type: 'success',
+        text: `Parsed ${originalCount} transactions. Removed ${existingIds.size} duplicates.`
+      });
+    } else {
+      // DEBUG: Explicitly say no duplicates found if that's the result
+      if (result.successful.length > 0) {
+        const firstId = bankType === 'NMB' ? result.successful[0].userId : result.successful[0].refId;
+        console.log(`No existing IDs found. Checked ${result.successful.length} IDs. First was: ${firstId}`);
+      }
+    }
+
     setParseResult(result);
     setTransactions(result.successful);
 
@@ -83,6 +132,8 @@ const AppLayout: React.FC = () => {
     setHistory(prev => [newEntry, ...prev.slice(0, 9)]);
 
     setIsProcessing(false);
+    // Clear message after 5 seconds
+    setTimeout(() => setSaveMessage(null), 5000);
   }, [customerMappings]);
 
   const handleSaveToCloud = useCallback(async () => {
@@ -95,13 +146,19 @@ const AppLayout: React.FC = () => {
     setSaveMessage(null);
 
     const batchName = `Batch ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`;
-    const { batchId, error } = await saveBatchToDatabase(parseResult, batchName);
+    const { batchId, error, skippedCount } = await saveBatchToDatabase(parseResult, batchName);
 
     if (error) {
       setSaveMessage({ type: 'error', text: `Failed to save: ${error}` });
     } else if (batchId) {
-      setSaveMessage({ type: 'success', text: 'Transactions saved to cloud successfully!' });
+      const msg = skippedCount > 0
+        ? `Saved successfully! (${skippedCount} duplicates skipped)`
+        : 'Transactions saved to cloud successfully!';
+      setSaveMessage({ type: 'success', text: msg });
       setCloudRefreshTrigger(prev => prev + 1);
+    } else if (skippedCount > 0 && !batchId) {
+      // Case where ALL were duplicates
+      setSaveMessage({ type: 'success', text: `All ${skippedCount} transactions were duplicates and skipped.` });
     }
 
     setIsSaving(false);

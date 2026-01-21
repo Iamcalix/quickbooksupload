@@ -107,20 +107,97 @@ export async function bulkInsertCustomerMappings(
   }
 }
 
+// Check for existing transactions in the database
+// Returns a Set of IDs that already exist
+export async function checkExistingTransactions(
+  transactions: ParsedTransaction[],
+  bankType: 'NMB' | 'CRDB'
+): Promise<{ existingIds: Set<string>; error: string | null }> {
+  try {
+    const existingIds = new Set<string>();
+
+    if (bankType === 'NMB') {
+      const userIds = transactions.map(t => t.userId).filter(id => id);
+      if (userIds.length > 0) {
+        // Chunk queries to avoid URL length limits
+        const chunkSize = 100;
+        for (let i = 0; i < userIds.length; i += chunkSize) {
+          const chunk = userIds.slice(i, i + chunkSize);
+          const { data, error } = await supabase
+            .from('parsed_transactions')
+            .select('user_id')
+            .in('user_id', chunk);
+
+          if (error) throw error;
+          if (data) {
+            console.log(`[CheckDuplicates] Found ${data.length} existing NMB transactions in chunk`); // DEBUG LOG
+            data.forEach(t => existingIds.add(t.user_id));
+          }
+        }
+      }
+    } else if (bankType === 'CRDB') {
+      const refIds = transactions.map(t => t.refId).filter(id => id);
+      if (refIds.length > 0) {
+        const chunkSize = 100;
+        for (let i = 0; i < refIds.length; i += chunkSize) {
+          const chunk = refIds.slice(i, i + chunkSize);
+          const { data, error } = await supabase
+            .from('parsed_transactions')
+            .select('ref_id')
+            .in('ref_id', chunk);
+
+          if (error) throw error;
+          if (data) {
+            console.log(`[CheckDuplicates] Found ${data.length} existing CRDB transactions in chunk`); // DEBUG LOG
+            data.forEach(t => existingIds.add(t.ref_id));
+          }
+        }
+      }
+    }
+
+    console.log(`[CheckDuplicates] Total existing IDs found: ${existingIds.size}`); // DEBUG LOG
+    return { existingIds, error: null };
+  } catch (error) {
+    console.error('Error checking duplicates:', error);
+    return { existingIds: new Set(), error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
 // Save a batch of parsed transactions to the database
 export async function saveBatchToDatabase(
   result: ParseResult,
   batchName?: string
-): Promise<{ batchId: string | null; error: string | null }> {
+): Promise<{ batchId: string | null; error: string | null; skippedCount: number }> {
   const sessionId = getSessionId();
 
-  // Calculate total amount
-  const totalAmount = result.successful.reduce((sum, t) => {
-    const amount = parseFloat(t.amount.replace(/,/g, '')) || 0;
-    return sum + amount;
-  }, 0);
+  // Deduplication Logic
+  // We re-run the check here to be safe, or we can trust the UI state. 
+  // Ideally, valid data reaching this point should be clean, but a final check prevents race conditions.
+  const { existingIds, error: checkError } = await checkExistingTransactions(result.successful, result.bankType);
+
+  if (checkError) {
+    return { batchId: null, error: checkError, skippedCount: 0 };
+  }
+
+  const transactionsToSave = result.successful.filter(t => {
+    if (result.bankType === 'NMB') return !existingIds.has(t.userId);
+    return !existingIds.has(t.refId);
+  });
+
+  const skippedCount = result.successful.length - transactionsToSave.length;
 
   try {
+    if (transactionsToSave.length === 0) {
+      console.log('All transactions were duplicates. Skipping batch creation.');
+      return { batchId: null, error: null, skippedCount };
+    }
+
+    // Calculate total amount from NEW transactions
+    const totalAmount = transactionsToSave.reduce((sum, t) => {
+      const amount = parseFloat(t.amount.replace(/,/g, '')) || 0;
+      return sum + amount;
+    }, 0);
+
     // Insert batch record
     const { data: batchData, error: batchError } = await supabase
       .from('transaction_batches')
@@ -128,8 +205,8 @@ export async function saveBatchToDatabase(
         session_id: sessionId,
         batch_name: batchName || `Batch ${new Date().toLocaleString()}`,
         total_lines: result.totalLines,
-        success_count: result.successCount,
-        fail_count: result.failCount,
+        success_count: transactionsToSave.length, // Only count saved ones
+        fail_count: result.failCount, // Failed parse count remains same
         total_amount: totalAmount
       })
       .select()
@@ -137,14 +214,14 @@ export async function saveBatchToDatabase(
 
     if (batchError) {
       console.error('Error saving batch:', batchError);
-      return { batchId: null, error: batchError.message };
+      return { batchId: null, error: batchError.message, skippedCount: 0 };
     }
 
     const batchId = batchData.id;
 
-    // Prepare transaction records
+    // Prepare transaction records (Only for non-duplicates)
     const allTransactions = [
-      ...result.successful.map(t => ({
+      ...transactionsToSave.map(t => ({
         batch_id: batchId,
         ref_id: t.refId,
         user_id: t.userId,
@@ -210,10 +287,10 @@ export async function saveBatchToDatabase(
       }
     }
 
-    return { batchId, error: null };
+    return { batchId, error: null, skippedCount };
   } catch (error) {
     console.error('Database error:', error);
-    return { batchId: null, error: error instanceof Error ? error.message : 'Unknown error' };
+    return { batchId: null, error: error instanceof Error ? error.message : 'Unknown error', skippedCount: 0 };
   }
 }
 

@@ -33,6 +33,7 @@ export interface ParseResult {
   totalLines: number;
   successCount: number;
   failCount: number;
+  bankType: 'NMB' | 'CRDB';
 }
 
 export function parseTransactionLine(line: string): ParsedTransaction {
@@ -393,7 +394,8 @@ export function parseTransactions(rawData: string, bankType: 'NMB' | 'CRDB' = 'N
     failed,
     totalLines: lines.length,
     successCount: successful.length,
-    failCount: failed.length
+    failCount: failed.length,
+    bankType
   };
 }
 
