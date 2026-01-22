@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import DataInputSection from './DataInputSection';
 import ResultsTable from './ResultsTable';
 import StatsPanel from './StatsPanel';
@@ -231,10 +232,10 @@ const AppLayout: React.FC = () => {
                 </svg>
                 <span className="text-xs">Cloud Sync</span>
               </div>
-              <div className="px-4 py-2 bg-white/10 rounded-lg text-white text-sm backdrop-blur-sm flex items-center gap-2">
+              <Link to="/mappings" className="px-4 py-2 bg-white/10 rounded-lg text-white text-sm backdrop-blur-sm flex items-center gap-2 hover:bg-white/20 transition-colors">
                 <span className={`w-2 h-2 rounded-full ${customerMappings.length > 0 ? 'bg-emerald-400' : 'bg-red-400'}`}></span>
                 <span className="text-xs">Mappings: {customerMappings.length}</span>
-              </div>
+              </Link>
               <span className="px-4 py-2 bg-white/10 rounded-lg text-white text-sm font-medium backdrop-blur-sm">
                 v2.1
               </span>

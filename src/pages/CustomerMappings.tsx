@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 import { fetchCustomerMappings, bulkInsertCustomerMappings, CustomerMapping } from '../utils/databaseService';
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,6 +26,72 @@ const CustomerMappings: React.FC = () => {
         loadMappings();
     }, []);
 
+    const processParsedData = async (data: any[]) => {
+        const records = data.map((row: any) => ({
+            member_id: row['Member ID'] || row['MemberID'] || '',
+            ref_id: row['ReferenceID'] || row['Reference ID'] || null,
+            customer_name: row['Client Name'] || row['ClientName'] || null,
+            account_number: row['Account Number'] || row['AccountNumber'] || null,
+            loan_product: row['Loan Product'] || null,
+            email: null,
+            phone_number: null
+        })).filter((r: any) => r.member_id || r.ref_id);
+
+        if (records.length === 0) {
+            setMessage({ type: 'error', text: 'No valid records found. Ensure columns are: Member ID, ReferenceID, Client Name, Account Number' });
+            setIsProcessing(false);
+            return;
+        }
+
+        const { success, error } = await bulkInsertCustomerMappings(records);
+
+        if (success) {
+            setMessage({ type: 'success', text: `Successfully imported ${records.length} mappings!` });
+            setPasteData('');
+            loadMappings();
+            // Reset file input if possible, but for now just clear processing
+        } else {
+            setMessage({ type: 'error', text: `Import failed: ${error}` });
+        }
+        setIsProcessing(false);
+    };
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsProcessing(true);
+        setMessage(null);
+
+        try {
+            if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                const buffer = await file.arrayBuffer();
+                const workbook = XLSX.read(buffer);
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                await processParsedData(jsonData);
+            } else {
+                // CSV or other text formats
+                Papa.parse(file, {
+                    header: true,
+                    skipEmptyLines: true,
+                    transformHeader: (h) => h.trim(),
+                    complete: async (results) => {
+                        await processParsedData(results.data);
+                    },
+                    error: (error) => {
+                        setMessage({ type: 'error', text: `Error parsing file: ${error.message}` });
+                        setIsProcessing(false);
+                    }
+                });
+            }
+        } catch (error) {
+            setMessage({ type: 'error', text: `Error reading file: ${error}` });
+            setIsProcessing(false);
+        }
+    };
+
     const handleImport = async () => {
         if (!pasteData.trim()) return;
 
@@ -41,42 +108,10 @@ const CustomerMappings: React.FC = () => {
                 delimiter: "\t", // Force tab based on sample, or auto
             });
 
-            // If delimiter auto-detection fails to pick tab for that specific format
-            if (parsed.meta.delimiter !== '\t' && parsed.data.length > 0 && Object.keys(parsed.data[0]).length < 2) {
-                // Fallback to retry with default auto
-            }
-
-            console.log('Parsed Data:', parsed);
-
-            const records = parsed.data.map((row: any) => ({
-                member_id: row['Member ID'] || row['MemberID'] || '',
-                ref_id: row['ReferenceID'] || row['Reference ID'] || null,
-                customer_name: row['Client Name'] || row['ClientName'] || null,
-                account_number: row['Account Number'] || row['AccountNumber'] || null,
-                loan_product: row['Loan Product'] || null,
-                email: null,
-                phone_number: null
-            })).filter((r: any) => r.member_id || r.ref_id);
-
-            if (records.length === 0) {
-                setMessage({ type: 'error', text: 'No valid records found. Ensure columns are: Member ID, ReferenceID, Client Name, Account Number' });
-                setIsProcessing(false);
-                return;
-            }
-
-            const { success, error } = await bulkInsertCustomerMappings(records);
-
-            if (success) {
-                setMessage({ type: 'success', text: `Successfully imported ${records.length} mappings!` });
-                setPasteData('');
-                loadMappings();
-            } else {
-                setMessage({ type: 'error', text: `Import failed: ${error}` });
-            }
+            await processParsedData(parsed.data);
 
         } catch (e) {
             setMessage({ type: 'error', text: `Error parsing data: ${e}` });
-        } finally {
             setIsProcessing(false);
         }
     };
@@ -114,6 +149,34 @@ const CustomerMappings: React.FC = () => {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-gray-700">Upload CSV/Excel File</label>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="file"
+                                        accept=".csv, .txt, .tsv, .xlsx, .xls"
+                                        onChange={handleFileUpload}
+                                        className="block w-full text-sm text-gray-500
+                                            file:mr-4 file:py-2 file:px-4
+                                            file:rounded-md file:border-0
+                                            file:text-sm file:font-semibold
+                                            file:bg-blue-50 file:text-blue-700
+                                            hover:file:bg-blue-100
+                                        "
+                                        disabled={isProcessing}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="relative">
+                                <div className="absolute inset-0 flex items-center">
+                                    <span className="w-full border-t" />
+                                </div>
+                                <div className="relative flex justify-center text-xs uppercase">
+                                    <span className="bg-white px-2 text-gray-500">Or paste text</span>
+                                </div>
+                            </div>
+
                             <Textarea
                                 placeholder="Paste data here..."
                                 className="min-h-[200px] font-mono text-sm"
@@ -142,7 +205,7 @@ const CustomerMappings: React.FC = () => {
                                         Importing...
                                     </>
                                 ) : (
-                                    'Import Data'
+                                    'Import Pasted Data'
                                 )}
                             </Button>
                         </CardContent>
