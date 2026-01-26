@@ -79,6 +79,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ transactions, onEdit }) => 
 
   const columns: { key: keyof ParsedTransaction; label: string; width: string }[] = [
     { key: 'clientName', label: 'Client Name', width: 'min-w-[200px]' },
+    { key: 'nationalId', label: 'Matched ID', width: 'min-w-[120px]' },
     { key: 'memberId', label: 'Member ID', width: 'min-w-[150px]' },
     { key: 'refId', label: 'Ref Id', width: 'min-w-[120px]' },
     { key: 'userId', label: 'User Id', width: 'min-w-[150px]' },

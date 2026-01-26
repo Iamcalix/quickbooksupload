@@ -25,6 +25,7 @@ export interface ParsedTransaction {
   rawLine: string;
   isValid: boolean;
   errorMessage?: string;
+  nationalId?: string;
 }
 
 export interface ParseResult {
@@ -193,7 +194,8 @@ export function parseTransactionLine(line: string): ParsedTransaction {
       comment,
       rawLine: trimmedLine,
       isValid,
-      errorMessage: isValid ? undefined : 'Could not extract required fields'
+      errorMessage: isValid ? undefined : 'Could not extract required fields',
+      nationalId: ''
     };
   } catch (error) {
     return {
@@ -338,7 +340,8 @@ export function parseCRDBTransactionLine(line: string): ParsedTransaction {
       comment,
       rawLine: trimmedLine,
       isValid,
-      errorMessage: isValid ? undefined : 'Could not extract required fields from CRDB line'
+      errorMessage: isValid ? undefined : 'Could not extract required fields from CRDB line',
+      nationalId: ''
     };
 
   } catch (error) {
@@ -371,7 +374,8 @@ function createEmptyTransaction(line: string, errorMessage?: string): ParsedTran
     comment: '',
     rawLine: line,
     isValid: false,
-    errorMessage
+    errorMessage,
+    nationalId: ''
   };
 }
 

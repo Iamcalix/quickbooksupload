@@ -27,15 +27,20 @@ const CustomerMappings: React.FC = () => {
     }, []);
 
     const processParsedData = async (data: any[]) => {
+        if (data.length > 0) {
+            console.log('first row keys:', Object.keys(data[0]));
+            console.log('first row sample:', data[0]);
+        }
         const records = data.map((row: any) => ({
-            member_id: row['Member ID'] || row['MemberID'] || '',
-            ref_id: row['ReferenceID'] || row['Reference ID'] || null,
-            customer_name: row['Client Name'] || row['ClientName'] || null,
-            account_number: row['Account Number'] || row['AccountNumber'] || null,
-            loan_product: row['Loan Product'] || null,
+            member_id: (row['Member ID'] || row['MemberID'] || '').trim(),
+            ref_id: (row['ReferenceID'] || row['Reference ID'] || '').trim() || null,
+            customer_name: (row['Client Name'] || row['ClientName'] || '').trim() || null,
+            national_id: (row['National ID Number'] || row['National ID'] || row['NationalID'] || '').trim() || null,
+            account_number: (row['Account Number'] || row['AccountNumber'] || '').trim() || null,
+            loan_product: (row['Loan Product'] || '').trim() || null,
             email: null,
             phone_number: null
-        })).filter((r: any) => r.member_id || r.ref_id);
+        })).filter((r: any) => r.member_id || r.ref_id || r.national_id);
 
         if (records.length === 0) {
             setMessage({ type: 'error', text: 'No valid records found. Ensure columns are: Member ID, ReferenceID, Client Name, Account Number' });
@@ -145,7 +150,7 @@ const CustomerMappings: React.FC = () => {
                             <CardDescription>
                                 Paste your data from Excel/Sheets.
                                 <br />
-                                Expected columns: <code className="bg-gray-100 px-1 rounded">Account Number</code> <code className="bg-gray-100 px-1 rounded">Client Name</code> <code className="bg-gray-100 px-1 rounded">ReferenceID</code> <code className="bg-gray-100 px-1 rounded">Member ID</code>
+                                Expected columns: <code className="bg-gray-100 px-1 rounded">Account Number</code> <code className="bg-gray-100 px-1 rounded">Client Name</code> <code className="bg-gray-100 px-1 rounded">ReferenceID</code> <code className="bg-gray-100 px-1 rounded">Member ID</code> <code className="bg-gray-100 px-1 rounded">National ID Number</code>
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
@@ -230,6 +235,7 @@ const CustomerMappings: React.FC = () => {
                                             <TableHead>Client Name</TableHead>
                                             <TableHead>Member ID</TableHead>
                                             <TableHead>Reference ID</TableHead>
+                                            <TableHead>National ID</TableHead>
                                             <TableHead>Account No.</TableHead>
                                             <TableHead>Loan Product</TableHead>
                                         </TableRow>
@@ -237,7 +243,7 @@ const CustomerMappings: React.FC = () => {
                                     <TableBody>
                                         {mappings.length === 0 ? (
                                             <TableRow>
-                                                <TableCell colSpan={5} className="text-center h-24 text-gray-500">
+                                                <TableCell colSpan={6} className="text-center h-24 text-gray-500">
                                                     No mappings found. Import some data to get started.
                                                 </TableCell>
                                             </TableRow>
@@ -247,6 +253,7 @@ const CustomerMappings: React.FC = () => {
                                                     <TableCell className="font-medium">{mapping.customer_name || '-'}</TableCell>
                                                     <TableCell className="font-mono text-xs">{mapping.member_id || '-'}</TableCell>
                                                     <TableCell className="font-mono text-xs">{mapping.ref_id || '-'}</TableCell>
+                                                    <TableCell className="font-mono text-xs">{mapping.national_id || '-'}</TableCell>
                                                     <TableCell className="font-mono text-xs">{mapping.account_number || '-'}</TableCell>
                                                     <TableCell>{mapping.loan_product || '-'}</TableCell>
                                                 </TableRow>

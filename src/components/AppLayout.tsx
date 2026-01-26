@@ -54,6 +54,28 @@ const AppLayout: React.FC = () => {
             console.log('Match found by Account Number:', m.account_number);
             return true;
           }
+          // Check National ID matches (if present in transaction description/raw line)
+          // Normalizes both by removing spaces and converting to lowercase to handle "MC 868 FLL" matching "MC868FLL"
+          if (m.national_id) {
+            const normalizedRaw = t.rawLine.toLowerCase().replace(/\s+/g, '');
+            const normalizedId = m.national_id.toLowerCase().replace(/\s+/g, '');
+
+            // DEBUG LOG for specific ID
+            if (m.national_id.includes('868')) {
+              console.log(`Checking match for ${m.national_id}:`, {
+                normalizedId,
+                foundInRaw: normalizedRaw.includes(normalizedId)
+              });
+            }
+
+            if (normalizedRaw.includes(normalizedId)) {
+              console.log('Match found by National ID (normalized):', m.national_id);
+              return true;
+            }
+          } else {
+            // Debug log to see if National IDs are even loaded
+            if (Math.random() < 0.001) console.log('Mapping missing National ID:', m);
+          }
           return false;
         });
 
@@ -65,7 +87,8 @@ const AppLayout: React.FC = () => {
             emailAddress: mapping.email || t.emailAddress,
             accountNumber: mapping.account_number || t.accountNumber || (mapping.member_id === t.userId ? t.userId : ''),
             productName: mapping.loan_product || t.productName,
-            comment: mapping.customer_name ? `Mapped to ${mapping.customer_name}` : t.comment
+            comment: mapping.customer_name ? `Mapped to ${mapping.customer_name}` : t.comment,
+            nationalId: mapping.national_id || t.nationalId
           };
         }
         return t;

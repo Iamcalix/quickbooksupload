@@ -32,6 +32,7 @@ export interface CustomerMapping {
   member_id: string;
   ref_id: string | null;
   customer_name: string | null;
+  national_id: string | null;
   email: string | null;
   account_number: string | null;
   phone_number: string | null;
@@ -64,6 +65,7 @@ export interface StoredTransaction {
   raw_line: string;
   is_valid: boolean;
   error_message: string | null;
+  national_id: string | null;
   created_at: string;
 }
 
@@ -244,7 +246,8 @@ export async function saveBatchToDatabase(
         comment: t.comment,
         raw_line: t.rawLine,
         is_valid: true,
-        error_message: null
+        error_message: null,
+        national_id: t.nationalId || null
       })),
       ...result.failed.map(t => ({
         batch_id: batchId,
@@ -269,7 +272,8 @@ export async function saveBatchToDatabase(
         comment: t.comment,
         raw_line: t.rawLine,
         is_valid: false,
-        error_message: t.errorMessage || null
+        error_message: t.errorMessage || null,
+        national_id: t.nationalId || null
       }))
     ];
 
@@ -441,6 +445,7 @@ export function convertToExportFormat(transactions: StoredTransaction[]): Parsed
     comment: t.comment || '',
     rawLine: t.raw_line,
     isValid: t.is_valid,
-    errorMessage: t.error_message || undefined
+    errorMessage: t.error_message || undefined,
+    nationalId: t.national_id || undefined
   }));
 }
