@@ -9,7 +9,7 @@ interface ResultsTableProps {
 const ResultsTable: React.FC<ResultsTableProps> = ({ transactions, onEdit }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortField, setSortField] = useState<keyof ParsedTransaction>('transactionDate');
+  const [sortField, setSortField] = useState<keyof ParsedTransaction>('paymentDate');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [editingCell, setEditingCell] = useState<{ row: number; field: keyof ParsedTransaction } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -23,9 +23,9 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ transactions, onEdit }) => 
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(t =>
-        t.refId.toLowerCase().includes(term) ||
-        t.userId.toLowerCase().includes(term) ||
-        t.productName.toLowerCase().includes(term) ||
+        t.invoiceNo.toLowerCase().includes(term) ||
+        t.customer.toLowerCase().includes(term) ||
+        t.depositToAccountName.toLowerCase().includes(term) ||
         t.amount.toLowerCase().includes(term)
       );
     }
@@ -78,28 +78,16 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ transactions, onEdit }) => 
   };
 
   const columns: { key: keyof ParsedTransaction; label: string; width: string }[] = [
-    { key: 'clientName', label: 'Client Name', width: 'min-w-[200px]' },
-    { key: 'nationalId', label: 'Matched ID', width: 'min-w-[120px]' },
-    { key: 'memberId', label: 'Member ID', width: 'min-w-[150px]' },
-    { key: 'refId', label: 'Ref Id', width: 'min-w-[120px]' },
-    { key: 'userId', label: 'User Id', width: 'min-w-[150px]' },
-    { key: 'emailAddress', label: 'Email Address', width: 'min-w-[200px]' },
-    { key: 'productType', label: 'Product Type', width: 'min-w-[120px]' },
-    { key: 'productName', label: 'Product Name', width: 'min-w-[150px]' },
-    { key: 'accountNumber', label: 'AccountNumber', width: 'min-w-[150px]' },
+    { key: 'paymentDate', label: 'Payment Date', width: 'min-w-[150px]' },
+    { key: 'customer', label: 'Customer', width: 'min-w-[200px]' },
+    { key: 'paymentMethod', label: 'Payment Method', width: 'min-w-[150px]' },
+    { key: 'depositToAccountName', label: 'Deposit To Account', width: 'min-w-[200px]' },
+    { key: 'invoiceNo', label: 'Invoice No', width: 'min-w-[150px]' },
+    { key: 'journalNo', label: 'Journal No', width: 'min-w-[120px]' },
     { key: 'amount', label: 'Amount', width: 'min-w-[120px]' },
-    { key: 'type', label: 'Type', width: 'min-w-[100px]' },
-    { key: 'principal', label: 'Principal', width: 'min-w-[120px]' },
-    { key: 'interest', label: 'Interest', width: 'min-w-[100px]' },
-    { key: 'charges', label: 'Charges', width: 'min-w-[100px]' },
-    { key: 'chargeName', label: 'Charge Name', width: 'min-w-[150px]' },
-    { key: 'transactionDate', label: 'Transaction Date', width: 'min-w-[150px]' },
-    { key: 'operationType', label: 'Operation Type', width: 'min-w-[150px]' },
-    { key: 'transactionMode', label: 'Transaction Mode', width: 'min-w-[150px]' },
-    { key: 'transactionReferenceNumber', label: 'Trans Ref No.', width: 'min-w-[150px]' },
-    { key: 'receiptNumber', label: 'Receipt No.', width: 'min-w-[120px]' },
-    { key: 'chequeNumber', label: 'Cheque No.', width: 'min-w-[120px]' },
-    { key: 'comment', label: 'Comment', width: 'min-w-[200px]' },
+    { key: 'referenceMemo', label: 'Reference Memo', width: 'min-w-[200px]' },
+    { key: 'countryCode', label: 'Country Code', width: 'min-w-[120px]' },
+    { key: 'exchangeRate', label: 'Exchange Rate', width: 'min-w-[120px]' },
   ];
 
   if (transactions.length === 0) {
@@ -198,11 +186,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ transactions, onEdit }) => 
                         autoFocus
                       />
                     ) : (
-                      <span className={`${col.key === 'type'
-                        ? transaction.type === 'Credit'
-                          ? 'text-emerald-600 font-medium'
-                          : 'text-red-600 font-medium'
-                        : col.key === 'amount'
+                      <span className={`${col.key === 'amount'
                           ? 'font-mono font-medium text-gray-800'
                           : 'text-gray-700'
                         }`}>

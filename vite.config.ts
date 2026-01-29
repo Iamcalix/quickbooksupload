@@ -7,10 +7,10 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
-    allowedHosts: ["upload-s9ri.onrender.com"],
+    allowedHosts: true,
   },
   preview: {
-    allowedHosts: ["upload-s9ri.onrender.com"],
+    allowedHosts: true,
   },
   plugins: [
     react()

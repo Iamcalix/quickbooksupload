@@ -8,7 +8,8 @@ import ProcessingHistory, { HistoryEntry } from './ProcessingHistory';
 import CloudHistoryPanel from './CloudHistoryPanel';
 import { parseTransactions, ParseResult, ParsedTransaction } from '../utils/transactionParser';
 import { downloadExcel, downloadCSV, downloadFailedRecords } from '../utils/excelExport';
-import { saveBatchToDatabase, getSessionId, fetchCustomerMappings, CustomerMapping, checkExistingTransactions } from '../utils/databaseService';
+import { saveBatchToDatabase, getSessionId, checkExistingTransactions } from '../utils/databaseService';
+import { fetchCustomerMappings, CustomerMapping } from '../utils/customerMappingService';
 
 const AppLayout: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -20,12 +21,21 @@ const AppLayout: React.FC = () => {
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [activeTab, setActiveTab] = useState<'local' | 'cloud'>('local');
   const [customerMappings, setCustomerMappings] = useState<CustomerMapping[]>([]);
+  const [isFetchingMappings, setIsFetchingMappings] = useState(false);
 
   useEffect(() => {
-    // Fetch mappings on load
+    // Fetch customer mappings from Google Sheets on load
     const loadMappings = async () => {
-      const mappings = await fetchCustomerMappings();
-      setCustomerMappings(mappings);
+      setIsFetchingMappings(true);
+      try {
+        const mappings = await fetchCustomerMappings();
+        setCustomerMappings(mappings);
+        console.log(`[AppLayout] Loaded ${mappings.length} customer mappings from Google Sheets`);
+      } catch (error) {
+        console.error('[AppLayout] Failed to load customer mappings:', error);
+      } finally {
+        setIsFetchingMappings(false);
+      }
     };
     loadMappings();
   }, []);
@@ -37,80 +47,23 @@ const AppLayout: React.FC = () => {
     // Simulate processing delay for large datasets
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    const result = parseTransactions(data, bankType);
-
-    // Apply customer mappings
-    // Apply customer mappings
-    if (customerMappings.length > 0) {
-      console.log(`Processing with ${customerMappings.length} mappings`);
-      result.successful = result.successful.map(t => {
-        const mapping = customerMappings.find(m => {
-          // Check Member ID matches
-          if (m.member_id && m.member_id === t.userId) return true;
-          // Check Ref ID matches
-          if (m.ref_id && m.ref_id === t.refId) return true;
-          // Check Account Number matches User ID or Ref ID (sometimes account number is in Ref/Desc)
-          if (m.account_number && (m.account_number === t.userId || m.account_number === t.refId)) {
-            console.log('Match found by Account Number:', m.account_number);
-            return true;
-          }
-          // Check National ID matches (if present in transaction description/raw line)
-          // Normalizes both by removing spaces and converting to lowercase to handle "MC 868 FLL" matching "MC868FLL"
-          if (m.national_id) {
-            const normalizedRaw = t.rawLine.toLowerCase().replace(/\s+/g, '');
-            const normalizedId = m.national_id.toLowerCase().replace(/\s+/g, '');
-
-            // DEBUG LOG for specific ID
-            if (m.national_id.includes('868')) {
-              console.log(`Checking match for ${m.national_id}:`, {
-                normalizedId,
-                foundInRaw: normalizedRaw.includes(normalizedId)
-              });
-            }
-
-            if (normalizedRaw.includes(normalizedId)) {
-              console.log('Match found by National ID (normalized):', m.national_id);
-              return true;
-            }
-          } else {
-            // Debug log to see if National IDs are even loaded
-            if (Math.random() < 0.001) console.log('Mapping missing National ID:', m);
-          }
-          return false;
-        });
-
-        if (mapping) {
-          return {
-            ...t,
-            clientName: mapping.customer_name || '',
-            memberId: mapping.member_id || '',
-            emailAddress: mapping.email || t.emailAddress,
-            accountNumber: mapping.account_number || t.accountNumber || (mapping.member_id === t.userId ? t.userId : ''),
-            productName: mapping.loan_product || t.productName,
-            comment: mapping.customer_name ? `Mapped to ${mapping.customer_name}` : t.comment,
-            nationalId: mapping.national_id || t.nationalId
-          };
-        }
-        return t;
-      });
-    }
+    // Parse transactions with customer mappings
+    const result = parseTransactions(data, bankType, customerMappings);
 
     // Check for existing transactions immediately
-    console.log(`[AppLayout] Checking duplicates for ${result.successful.length} transactions. Bank: ${bankType}`); // DEBUG LOG
+    console.log(`[AppLayout] Checking duplicates for ${result.successful.length} transactions. Bank: ${bankType}`);
 
-    // DEBUG: Show alert with first ID to ensure parsing is correct in production
     if (result.successful.length > 0) {
-      const firstId = bankType === 'NMB' ? result.successful[0].userId : result.successful[0].refId;
-      console.log(`[AppLayout] Sample ID to check: ${firstId}`);
+      const firstId = result.successful[0].invoiceNo;
+      console.log(`[AppLayout] Sample Invoice No to check: ${firstId}`);
 
       // VALIDATION: Check if we have valid IDs to check
-      const missingIdCount = result.successful.filter(t => bankType === 'NMB' ? !t.userId : !t.refId).length;
+      const missingIdCount = result.successful.filter(t => !t.invoiceNo).length;
       if (missingIdCount > 0) {
         setSaveMessage({
           type: 'error',
-          text: `Warning: ${missingIdCount} transactions have no unique ID (User ID/Ref ID). Deduplication may fail for these.`
+          text: `Warning: ${missingIdCount} transactions have no Invoice No. Deduplication may fail for these.`
         });
-        // We still proceed to check the ones that HAVE IDs
       }
     }
 
@@ -122,25 +75,27 @@ const AppLayout: React.FC = () => {
 
     if (existingIds.size > 0) {
       const originalCount = result.successful.length;
-      result.successful = result.successful.filter(t => {
-        if (bankType === 'NMB') return !existingIds.has(t.userId);
-        return !existingIds.has(t.refId);
-      });
+      result.successful = result.successful.filter(t => !existingIds.has(t.invoiceNo));
       console.log(`Filtered ${originalCount - result.successful.length} duplicates`);
 
       // Update success count
       result.successCount = result.successful.length;
 
-      // Optionally notify user
+      // Notify user
+      const matchedCount = result.successful.filter(t => t.customer).length;
       setSaveMessage({
         type: 'success',
-        text: `Parsed ${originalCount} transactions. Removed ${existingIds.size} duplicates.`
+        text: `Parsed ${originalCount} transactions. Removed ${existingIds.size} duplicates. Matched ${matchedCount} customer names.`
       });
     } else {
-      // DEBUG: Explicitly say no duplicates found if that's the result
       if (result.successful.length > 0) {
-        const firstId = bankType === 'NMB' ? result.successful[0].userId : result.successful[0].refId;
+        const matchedCount = result.successful.filter(t => t.customer).length;
+        const firstId = result.successful[0].invoiceNo;
         console.log(`No existing IDs found. Checked ${result.successful.length} IDs. First was: ${firstId}`);
+        setSaveMessage({
+          type: 'success',
+          text: `Parsed ${result.successful.length} transactions. Matched ${matchedCount} customer names.`
+        });
       }
     }
 

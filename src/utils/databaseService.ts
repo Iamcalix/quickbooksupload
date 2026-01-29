@@ -119,30 +119,30 @@ export async function checkExistingTransactions(
     const existingIds = new Set<string>();
 
     if (bankType === 'NMB') {
-      const userIds = transactions.map(t => t.userId).filter(id => id);
-      if (userIds.length > 0) {
+      const invoiceNos = transactions.map(t => t.invoiceNo).filter(id => id);
+      if (invoiceNos.length > 0) {
         // Chunk queries to avoid URL length limits
         const chunkSize = 100;
-        for (let i = 0; i < userIds.length; i += chunkSize) {
-          const chunk = userIds.slice(i, i + chunkSize);
+        for (let i = 0; i < invoiceNos.length; i += chunkSize) {
+          const chunk = invoiceNos.slice(i, i + chunkSize);
           const { data, error } = await supabase
             .from('parsed_transactions')
-            .select('user_id')
-            .in('user_id', chunk);
+            .select('ref_id')
+            .in('ref_id', chunk);
 
           if (error) throw error;
           if (data) {
             console.log(`[CheckDuplicates] Found ${data.length} existing NMB transactions in chunk`); // DEBUG LOG
-            data.forEach(t => existingIds.add(t.user_id));
+            data.forEach(t => existingIds.add(t.ref_id));
           }
         }
       }
     } else if (bankType === 'CRDB') {
-      const refIds = transactions.map(t => t.refId).filter(id => id);
-      if (refIds.length > 0) {
+      const invoiceNos = transactions.map(t => t.invoiceNo).filter(id => id);
+      if (invoiceNos.length > 0) {
         const chunkSize = 100;
-        for (let i = 0; i < refIds.length; i += chunkSize) {
-          const chunk = refIds.slice(i, i + chunkSize);
+        for (let i = 0; i < invoiceNos.length; i += chunkSize) {
+          const chunk = invoiceNos.slice(i, i + chunkSize);
           const { data, error } = await supabase
             .from('parsed_transactions')
             .select('ref_id')
@@ -182,8 +182,7 @@ export async function saveBatchToDatabase(
   }
 
   const transactionsToSave = result.successful.filter(t => {
-    if (result.bankType === 'NMB') return !existingIds.has(t.userId);
-    return !existingIds.has(t.refId);
+    return !existingIds.has(t.invoiceNo);
   });
 
   const skippedCount = result.successful.length - transactionsToSave.length;
@@ -222,58 +221,59 @@ export async function saveBatchToDatabase(
     const batchId = batchData.id;
 
     // Prepare transaction records (Only for non-duplicates)
+    // Map QuickBooks format to database schema
     const allTransactions = [
       ...transactionsToSave.map(t => ({
         batch_id: batchId,
-        ref_id: t.refId,
-        user_id: t.userId,
-        email_address: t.emailAddress,
-        product_type: t.productType,
-        product_name: t.productName,
-        account_number: t.accountNumber,
+        ref_id: t.invoiceNo,
+        user_id: t.referenceMemo,
+        email_address: '',
+        product_type: t.paymentMethod,
+        product_name: t.depositToAccountName,
+        account_number: '',
         amount: t.amount,
-        transaction_type: t.type,
-        principal: t.principal,
-        interest: t.interest,
-        charges: t.charges,
-        charge_name: t.chargeName,
-        transaction_date: t.transactionDate,
-        operation_type: t.operationType,
-        transaction_mode: t.transactionMode,
-        transaction_ref_no: t.transactionReferenceNumber,
-        receipt_no: t.receiptNumber,
-        cheque_no: t.chequeNumber,
-        comment: t.comment,
+        transaction_type: 'Credit',
+        principal: '',
+        interest: '',
+        charges: '',
+        charge_name: '',
+        transaction_date: t.paymentDate,
+        operation_type: t.paymentMethod,
+        transaction_mode: t.paymentMethod,
+        transaction_ref_no: t.invoiceNo,
+        receipt_no: t.journalNo,
+        cheque_no: '',
+        comment: t.referenceMemo,
         raw_line: t.rawLine,
         is_valid: true,
         error_message: null,
-        national_id: t.nationalId || null
+        national_id: null
       })),
       ...result.failed.map(t => ({
         batch_id: batchId,
-        ref_id: t.refId,
-        user_id: t.userId,
-        email_address: t.emailAddress,
-        product_type: t.productType,
-        product_name: t.productName,
-        account_number: t.accountNumber,
+        ref_id: t.invoiceNo,
+        user_id: t.referenceMemo,
+        email_address: '',
+        product_type: t.paymentMethod,
+        product_name: t.depositToAccountName,
+        account_number: '',
         amount: t.amount,
-        transaction_type: t.type,
-        principal: t.principal,
-        interest: t.interest,
-        charges: t.charges,
-        charge_name: t.chargeName,
-        transaction_date: t.transactionDate,
-        operation_type: t.operationType,
-        transaction_mode: t.transactionMode,
-        transaction_ref_no: t.transactionReferenceNumber,
-        receipt_no: t.receiptNumber,
-        cheque_no: t.chequeNumber,
-        comment: t.comment,
+        transaction_type: 'Credit',
+        principal: '',
+        interest: '',
+        charges: '',
+        charge_name: '',
+        transaction_date: t.paymentDate,
+        operation_type: t.paymentMethod,
+        transaction_mode: t.paymentMethod,
+        transaction_ref_no: t.invoiceNo,
+        receipt_no: t.journalNo,
+        cheque_no: '',
+        comment: t.referenceMemo,
         raw_line: t.rawLine,
         is_valid: false,
         error_message: t.errorMessage || null,
-        national_id: t.nationalId || null
+        national_id: null
       }))
     ];
 
@@ -422,30 +422,18 @@ export async function updateBatchName(
 // Convert stored transactions to ParsedTransaction format for export
 export function convertToExportFormat(transactions: StoredTransaction[]): ParsedTransaction[] {
   return transactions.map(t => ({
-    clientName: '', // Stored transactions don't have this yet, would need schema update
-    memberId: '',   // Stored transactions don't have this yet
-    refId: t.ref_id,
-    userId: t.user_id,
-    emailAddress: t.email_address || '',
-    productType: t.product_type,
-    productName: t.product_name,
-    accountNumber: t.account_number || '',
+    paymentDate: t.transaction_date,
+    customer: '', // Will be enriched from customer mappings if needed
+    paymentMethod: t.product_type,
+    depositToAccountName: t.product_name,
+    invoiceNo: t.ref_id,
+    journalNo: t.receipt_no || '',
     amount: t.amount,
-    type: t.transaction_type,
-    principal: t.principal || '',
-    interest: t.interest || '',
-    charges: t.charges || '',
-    chargeName: t.charge_name || '',
-    transactionDate: t.transaction_date,
-    operationType: t.operation_type,
-    transactionMode: t.transaction_mode || '',
-    transactionReferenceNumber: t.transaction_ref_no || '',
-    receiptNumber: t.receipt_no || '',
-    chequeNumber: t.cheque_no || '',
-    comment: t.comment || '',
+    referenceMemo: t.comment || t.user_id,
+    countryCode: '',
+    exchangeRate: '',
     rawLine: t.raw_line,
     isValid: t.is_valid,
-    errorMessage: t.error_message || undefined,
-    nationalId: t.national_id || undefined
+    errorMessage: t.error_message || undefined
   }));
 }
